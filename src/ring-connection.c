@@ -215,8 +215,19 @@ ring_connection_constructed(GObject *object)
     TP_ANONYMITY_MODE_CLIENT_INFO |
     TP_ANONYMITY_MODE_SHOW_CLIENT_INFO,
 
+// XXX priv->sim is probably not set at this time, and may be changed(?)
+// Likely needs to be moved. Not sure when set_self_handle is valid.
+  gchar *number = NULL;
+  g_object_get(self->priv->sim, "number", &number, NULL);
+
+  if (number != NULL) {
+    self_handle = tp_handle_ensure(repo, number, NULL, NULL);
+    g_free (number);
+  } else {
+    self_handle = tp_handle_ensure(repo, ring_self_handle_name, NULL, NULL);
+  }
+
   repo = tp_base_connection_get_handles(base, TP_HANDLE_TYPE_CONTACT);
-  self_handle = tp_handle_ensure(repo, ring_self_handle_name, NULL, NULL);
   tp_base_connection_set_self_handle(base, self_handle);
   tp_handle_unref(repo, self_handle);
   g_assert(base->self_handle != 0);

@@ -32,6 +32,7 @@
 #include "modem/ofono.h"
 
 #include <dbus/dbus-glib.h>
+#include <telepathy-glib/dbus.h>
 
 #include "signals-marshal.h"
 
@@ -63,6 +64,7 @@ enum
   PROP_NONE,
   PROP_STATUS,
   PROP_IMSI,
+  PROP_NUMBER,
   LAST_PROPERTY
 };
 
@@ -71,6 +73,7 @@ struct _ModemSIMServicePrivate
 {
   guint state;
   char *imsi;
+  char *number;
 
   GQueue queue[1];
 
@@ -112,6 +115,10 @@ modem_sim_service_get_property (GObject *object,
       g_value_set_string (value, priv->imsi);
       break;
 
+    case PROP_NUMBER:
+      g_value_set_string(value, priv->number);
+      break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -138,6 +145,11 @@ modem_sim_service_set_property (GObject *object,
       old = priv->imsi;
       priv->imsi = g_value_dup_string (value);
       g_free (old);
+      break;
+
+    case PROP_NUMBER:
+      g_free(priv->number);
+      priv->number = g_value_dup_string(value);
       break;
 
     default:
@@ -209,7 +221,7 @@ modem_sim_service_property_mapper (char const *name)
   if (!strcmp (name, "MobileNetworkCode"))
     return NULL;
   if (!strcmp (name, "SubscriberNumbers"))
-    return NULL;
+    return "number";
   if (!strcmp (name, "ServiceNumbers"))
     return NULL;
   if (!strcmp (name, "PinRequired"))
@@ -283,6 +295,13 @@ modem_sim_service_class_init (ModemSIMServiceClass *klass)
           "", /* default value */
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT |
           G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (object_class, PROP_NUMBER,
+      g_param_spec_string("number",
+          "Number",
+          "First phone number of this SIM",
+          NULL,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   signals[SIGNAL_STATUS] =
     g_signal_new ("state",
