@@ -46,6 +46,7 @@
 #include "modem/sim.h"
 #include "modem/call.h"
 #include "modem/sms.h"
+#include "modem/smart-messaging.h"
 
 #include <telepathy-glib/errors.h>
 
@@ -106,4 +107,5 @@ ring_connection_manager_class_init(RingConnectionManagerClass *klass)
   modem_oface_register_type (MODEM_TYPE_SIM_SERVICE);
   modem_oface_register_type (MODEM_TYPE_SMS_SERVICE);
   modem_oface_register_type (MODEM_TYPE_CALL_SERVICE);
+  modem_oface_register_type (MODEM_TYPE_SMART_MESSAGING);
 }

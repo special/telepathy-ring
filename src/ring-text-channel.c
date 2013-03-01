@@ -41,6 +41,7 @@
 #include <telepathy-glib/svc-generic.h>
 
 #include <modem/sms.h>
+#include <modem/smart-messaging.h>
 #include <modem/errors.h>
 #include <modem/call.h>
 
@@ -465,7 +466,6 @@ my_message_mixin_get_string(TpMessage const *message,
   return g_value_get_string(value);
 }
 
-#if nomore
 static GArray const *
 my_message_mixin_get_bytearray(TpMessage const *message,
   guint part,
@@ -493,7 +493,6 @@ my_message_mixin_get_uint(TpMessage const *message,
 
   return g_value_get_uint(value);
 }
-#endif
 
 /** Convert handle inspection to a destination acceptable by modem.
  *
@@ -515,8 +514,8 @@ ring_text_channel_destination(char const *inspection)
   }
 }
 
-static ModemSMSService *
-ring_text_channel_get_sms_service (RingTextChannel *self)
+static ModemOface *
+ring_text_channel_get_service (RingTextChannel *self, const char *name)
 {
   TpBaseChannel *base = TP_BASE_CHANNEL (self);
   TpBaseConnection *base_connection;
@@ -525,12 +524,9 @@ ring_text_channel_get_sms_service (RingTextChannel *self)
 
   base_connection = tp_base_channel_get_connection (base);
   connection = RING_CONNECTION (base_connection);
-  oface = ring_connection_get_modem_interface (connection, MODEM_OFACE_SMS);
+  oface = ring_connection_get_modem_interface (connection, name);
 
-  if (oface)
-    return MODEM_SMS_SERVICE (oface);
-  else
-    return NULL;
+  return oface;
 }
 
 static void
@@ -540,7 +536,6 @@ ring_text_channel_send(GObject *_self,
 {
   RingTextChannel *self = RING_TEXT_CHANNEL(_self);
   RingTextChannelPrivate *priv = self->priv;
-  ModemSMSService *sms_service = ring_text_channel_get_sms_service (self);
 #if nomore
   gboolean srr;
   guint32 sms_class;
@@ -548,7 +543,7 @@ ring_text_channel_send(GObject *_self,
 #endif
   char const *type;
   char const *text;
-  ModemRequest *request;
+  ModemRequest *request = 0;
   GError *error;
 
   g_assert(tp_message_count_parts(msg) >= 1);
@@ -563,15 +558,6 @@ ring_text_channel_send(GObject *_self,
     tp_message_mixin_sent(_self, msg, flags, NULL, &invalid);
     return;
   }
-
-  if (sms_service == NULL)
-    {
-      GError failed = {
-        TP_ERRORS, TP_ERROR_NOT_AVAILABLE, "SMS service is not available"
-      };
-      tp_message_mixin_sent (_self, msg, flags, NULL, &failed);
-      return;
-    }
 
 /* The nomore'd stuff is currently not supported by Ofono */
 #if nomore
@@ -594,33 +580,51 @@ ring_text_channel_send(GObject *_self,
   text = my_message_mixin_get_string(msg, 1, "content", "");
 
   if (g_strcasecmp(type, text_plain) == 0) {
+    ModemSMSService *sms_service = MODEM_SMS_SERVICE (ring_text_channel_get_service (self, MODEM_OFACE_SMS));
+    if (sms_service == NULL) {
+      GError failed = {
+        TP_ERRORS, TP_ERROR_NOT_AVAILABLE, "SMS service is not available"
+      };
+      tp_message_mixin_sent (_self, msg, flags, NULL, &failed);
+      return;
+    }
+
     DEBUG("Send(destination = %s," /*class = %u,*/ "text = \"%s\")",
       priv->destination, /*sms_class,*/ text);
+
+    request = modem_sms_request_send (sms_service,
+        priv->destination, text,
+        modem_sms_request_send_reply, self);
   }
-#if nomore
   else if (g_strcasecmp(type, "text/x-vcard") == 0 ||
     g_strcasecmp(type, "text/directory") == 0 ||
     g_strcasecmp(type, "text/vcard") == 0) {
     GArray b = { (gpointer)text, strlen(text) };
     GArray const *binary;
+    ModemSmartMessaging *smartmsg = MODEM_SMART_MESSAGING (ring_text_channel_get_service (self, MODEM_OFACE_SMART_MESSAGING));
+
+    if (smartmsg == NULL) {
+      GError failed = {
+        TP_ERRORS, TP_ERROR_NOT_AVAILABLE, "SmartMessaging service is not available"
+      };
+      tp_message_mixin_sent (_self, msg, flags, NULL, &failed);
+      return;
+    }
 
     binary = my_message_mixin_get_bytearray(msg, 1, "content", &b);
 
     if (binary && binary->data) {
-      encoded = sms_g_submit_binary(submit, binary, &error);
+      request = modem_smartmsg_request_send_vcard(smartmsg,
+          priv->destination, binary->data, binary->len,
+          modem_sms_request_send_reply, self);
     }
     else {
       g_set_error(&error, TP_ERRORS, TP_ERROR_INVALID_ARGUMENT, "No content");
     }
   }
-#endif
   else {
     g_set_error(&error, TP_ERRORS, TP_ERROR_INVALID_ARGUMENT, "Unknown content type");
   }
-
-  request = modem_sms_request_send (sms_service,
-      priv->destination, text,
-      modem_sms_request_send_reply, self);
 
   if (request == NULL) {
     GError failed = { TP_ERRORS, TP_ERROR_NETWORK_ERROR,
@@ -939,7 +943,7 @@ ring_text_channel_set_receive_timestamps(RingTextChannel *self,
 {
   g_return_if_fail(SMS_G_IS_MESSAGE(sms));
 
-  ModemSMSService *sms_service = ring_text_channel_get_sms_service (self);
+  ModemSMSService *sms_service = MODEM_SMS_SERVICE (ring_text_channel_get_service (self, MODEM_OFACE_SMS));
   gint64 sent = 0, received = 0, delivered = 0;
   gint64 now = (gint64)time(NULL);
 

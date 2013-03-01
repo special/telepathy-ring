@@ -56,6 +56,10 @@ modem_HEADERS += radio-settings.h
 
 libmodem_glib_la_SOURCES += radio-settings.c
 
+modem_HEADERS += smart-messaging.h
+
+libmodem_glib_la_SOURCES += smart-messaging.c
+
 # ----------------------------------------------------------------------
 
 EXTRA_DIST = signals-marshal.list
